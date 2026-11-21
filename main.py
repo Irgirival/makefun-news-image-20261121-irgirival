@@ -12,7 +12,26 @@ Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
 
 import hashlib
 import os
+import struct
 import sys
+
+# The competition gate for the image: a whole PNG or JPEG of at most
+# 1 MiB and 1024 by 1024 pixels. The copy below enforces it.
+MAX_BYTES = 1024 * 1024
+MAX_SIDE = 1024
+
+
+def png_dimensions(data: bytes) -> tuple:
+    """Read width and height out of a PNG's IHDR chunk (pure stdlib).
+
+    Raises ValueError when the bytes are not a PNG or have no IHDR.
+    """
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("entry.png is not a PNG file")
+    if data[12:16] != b"IHDR":
+        raise ValueError("entry.png has no IHDR chunk")
+    width, height = struct.unpack(">II", data[16:24])
+    return width, height
 
 
 def main() -> int:
@@ -23,6 +42,26 @@ def main() -> int:
         data = handle.read()
 
     source_hash = hashlib.sha256(data).hexdigest()
+
+    if len(data) > MAX_BYTES:
+        print(
+            "entry.png is %d bytes, over the 1 MiB gate" % len(data),
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        width, height = png_dimensions(data)
+    except ValueError as exc:
+        print("entry.png rejected: %s" % exc, file=sys.stderr)
+        return 1
+
+    if width > MAX_SIDE or height > MAX_SIDE:
+        print(
+            "entry.png is %dx%d, over the 1024x1024 gate" % (width, height),
+            file=sys.stderr,
+        )
+        return 1
 
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
@@ -43,7 +82,10 @@ def main() -> int:
         )
         return 1
 
-    print("wrote %s (%d bytes, sha256 %s)" % (target_path, len(written), written_hash))
+    print(
+        "wrote %s (%d bytes, %dx%d, sha256 %s)"
+        % (target_path, len(written), width, height, written_hash)
+    )
     return 0
 
 
